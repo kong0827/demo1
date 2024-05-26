@@ -1,17 +1,14 @@
 package com.example.demo.exccel;
 
 import com.alibaba.excel.EasyExcel;
-import com.alibaba.excel.annotation.ExcelProperty;
-import com.alibaba.excel.read.listener.PageReadListener;
+import com.alibaba.excel.context.AnalysisContext;
+import com.alibaba.excel.event.AnalysisEventListener;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.File;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/excel")
@@ -23,45 +20,61 @@ public class ExcelController {
         List<BasicInfo> basicInfos = new ArrayList<>();
         List<FriendInfo> friendInfos = new ArrayList<>();
 
-        EasyExcel.read(filePath, new PageReadListener<Map<Integer, String>>(dataList -> {
-            for (int i = 0; i < dataList.size(); i++) {
-                Map<Integer, String> data = dataList.get(i);
-                if (i == 0) {
-                    // 第一行，处理基本信息
-                    BasicInfo basicInfo = new BasicInfo();
-                    basicInfo.setName(data.get(1));
-                    basicInfos.add(basicInfo);
-                } else if (i == 1) {
-                    // 第二行，处理基本信息
-                    basicInfos.get(0).setAge(Integer.valueOf(data.get(1)));
-                } else {
-                    // 动态起始行，处理朋友信息
-                    if (data.containsValue("朋友名称") || data.containsValue("朋友年龄") || data.containsValue("住址")) {
-                        // 朋友信息标题行，跳过
-                        continue;
-                    }
-                    FriendInfo friendInfo = new FriendInfo();
-                    for (Map.Entry<Integer, String> entry : data.entrySet()) {
-                        switch (entry.getValue()) {
-                            case "朋友名称":
-                                friendInfo.setFriendName(data.get(entry.getKey() + 1));
-                                break;
-                            case "朋友年龄":
-                                friendInfo.setFriendAge(Integer.valueOf(data.get(entry.getKey() + 1)));
-                                break;
-                            case "住址":
-                                friendInfo.setAddress(data.get(entry.getKey() + 1));
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                    friendInfos.add(friendInfo);
-                }
-            }
-        })).sheet().doRead();
+        EasyExcel.read(filePath).registerReadListener(new CustomListener(basicInfos, friendInfos)).sheet().doRead();
+    }
+}
 
-        // 打印或处理解析结果
+class CustomListener extends AnalysisEventListener<List<String>> {
+    private List<BasicInfo> basicInfos;
+    private List<FriendInfo> friendInfos;
+
+    private boolean isBasicInfo = false;
+    private boolean isAgeRow = false;
+
+    public CustomListener(List<BasicInfo> basicInfos, List<FriendInfo> friendInfos) {
+        this.basicInfos = basicInfos;
+        this.friendInfos = friendInfos;
+    }
+
+    @Override
+    public void invoke(List<String> data, AnalysisContext context) {
+        if (data.isEmpty()) {
+            return; // 空行
+        }
+        if (!isBasicInfo) {
+            // 处理基本信息行
+            BasicInfo basicInfo = new BasicInfo();
+            basicInfo.setName(data.get(0));
+            basicInfos.add(basicInfo);
+            isBasicInfo = true;
+        } else {
+            if (!isAgeRow) {
+                // 处理可能是年龄的行
+                if (data.get(0).toLowerCase().equals("age")) {
+                    isAgeRow = true;
+                    // 如果年龄在当前行，直接处理
+                    if (data.size() > 1 && data.get(1) != null && data.get(1).matches("\\d+")) {
+                        basicInfos.get(0).setAge(Integer.parseInt(data.get(1)));
+                    }
+                }
+            } else {
+                // 处理朋友信息行
+                FriendInfo friendInfo = new FriendInfo();
+                friendInfo.setFriendName(data.get(0));
+                if (data.size() > 1 && data.get(1) != null && data.get(1).matches("\\d+")) {
+                    friendInfo.setFriendAge(Integer.parseInt(data.get(1)));
+                }
+                if (data.size() > 2) {
+                    friendInfo.setRemark(data.get(2));
+                }
+                friendInfos.add(friendInfo);
+            }
+        }
+    }
+
+    @Override
+    public void doAfterAllAnalysed(AnalysisContext context) {
+        // 处理完毕，可以对解析结果进行后续操作
         basicInfos.forEach(System.out::println);
         friendInfos.forEach(System.out::println);
     }
